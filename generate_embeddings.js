@@ -1,5 +1,6 @@
+// generate_embeddings.js
+import OpenAI from 'openai';
 import { createClient } from '@supabase/supabase-js';
-import { GoogleGenerativeAI } from '@google/generative-ai';
 import dotenv from 'dotenv';
 
 dotenv.config();
@@ -10,20 +11,27 @@ const supabase = createClient(
     process.env.SUPABASE_ANON_KEY
 );
 
-// Initialize Google AI
-const genAI = new GoogleGenerativeAI(process.env.GOOGLE_API_KEY);
+// Initialize OpenAI API
+const openai = new OpenAI({
+    apiKey: process.env.OPENAI_API_KEY,
+});
 
+// Function to generate an embedding using OpenAI
 async function generateEmbedding(text) {
-    const MAX_TOKENS = 2000; // Limit text size to prevent API errors
-    const truncatedText = text.slice(0, 8000); // Safe character limit
-
-    const model = genAI.getGenerativeModel({ model: "models/text-embedding-004" }); // Use correct model
-    const result = await model.embedContent(truncatedText);
-    return result.embedding.values;
+    const truncatedText = text.slice(0, 8000); // Ensure text isn't too long
+    try {
+        const response = await openai.embeddings.create({
+            model: 'text-embedding-ada-002',
+            input: truncatedText,
+        });
+        return response.data[0].embedding;
+    } catch (error) {
+        console.error('Error generating embedding:', error);
+        throw error;
+    }
 }
 
-
-// Fetch all articles and update them with embeddings
+// Fetch all articles from the 'animals' table and update them with OpenAI embeddings
 async function updateArticleEmbeddings() {
     const { data: articles, error } = await supabase.from('animals').select('id, article');
 
@@ -34,13 +42,12 @@ async function updateArticleEmbeddings() {
 
     for (const article of articles) {
         console.log(`Generating embedding for article ID: ${article.id}`);
-
         const embedding = await generateEmbedding(article.article);
 
-        // Update the database with the generated embedding
+        // Update the database with the generated embedding in the new column
         const { error: updateError } = await supabase
             .from('animals')
-            .update({ article_embedding: embedding })
+            .update({ article_openai_embedding: embedding })
             .eq('id', article.id);
 
         if (updateError) {
@@ -50,8 +57,8 @@ async function updateArticleEmbeddings() {
         }
     }
 
-    console.log('All articles updated with embeddings!');
+    console.log('All articles updated with OpenAI embeddings!');
 }
 
-// Run the function
+// Run the update function
 updateArticleEmbeddings();
